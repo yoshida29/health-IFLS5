@@ -1,0 +1,103 @@
+clear
+capture log close
+set more off
+
+cd "/Users/yoshidaaussiana/Downloads/Sekolah Stata/Kelas IFLS/Day 1"
+
+global IFLS5 "/Users/yoshidaaussiana/Downloads/Sekolah Stata/Kelas IFLS/Day 1/IFLS_extracted/IFLS 5/IFLS 5 - HH"
+dir "$IFLS5/*"
+
+global HASIL "/Users/yoshidaaussiana/Downloads/Sekolah Stata/Kelas IFLS/Day 1/Hasil"
+dir "$HASIL/*"
+
+
+/*****************************************************************************/
+/*DATASET 1: Variable SOCIODEMOGRAPHICS - HH level***/
+
+use "$IFLS5/bk_ar1.dta", clear
+summarize
+
+summarize hhid14_9
+tabulate ar01a
+
+*membuat variable dengan generate
+generate marital_status=1 if ar13==2 | ar13==6
+replace marital_status = 0 if ar13 == 1 | ar13 == 3 | ar13 == 4 | ar13 == 5 | ar13 == 8 | ar13 == 9
+tabulate marital_status
+tabulate ar13 marital_status
+label variable marital_status "status perkawinan"
+label value marital_status marital_s
+label define marital_s 0 "0: not married" 1 "1: married"
+tabulate marital_status
+
+
+*Generate variable with recode*
+recode ar16 (1/4 11 12 72 73 90=1)(5/6 15 74=2)(13 60 61=3)(62 63=4)(14 17 95 98 99=5), gen(educ_group)
+
+label define education_labels 1 "1: below sr. high school" 2 "2: sr. high school" 3 "3: diploma & undergraduate" 4 "4: post graduate" 5 "5: others"
+
+label values ar16 education_labels
+
+tab educ_group
+label variable educ_group "pendidikan tertinggi"
+
+
+*Generate variable with egen*
+replace ar15b=0 if ar15b==.
+sort hhid14
+egen total_hh_income=sum(ar15b), by(hhid14)
+browse hhid14 pid14 ar15b total_hh_income	
+la var total_hh_income "Pendapatan rumah tangga"
+tab educ_group
+keep hhid* pid* marital_status educ_group total_hh_income
+save "$HASIL/DATA1.dta", replace
+
+/*****************************************************************************/
+
+
+/*DATASET2: Variable Smoking - individual level*/
+use "$IFLS5/b3b_km.dta", clear 
+summarize
+tabulate km01a
+	*membuat variable dengan generate*
+	gen merokok=1 if km01a==1
+	replace merokok=0 if km01a!=1
+	la var merokok "Kebiasaan merokok"
+	la val merokok merokok
+	la def merokok 1 "merokok" 0 "tidak merokok"
+
+	recode km08 (0/12=0 "0: <=1 bungkus") (13/max=1 "1: >1 bungkus"), gen(mean_konsumsi_rokok)
+	recode km08d (0/50000=1 "1: 0-50 Ribu") (51000/100000=2 "2: >50 Ribu - 100 Ribu") (103000/max=3 "3: >100 Ribu"), gen(pengeluaran_merokok)
+	recode km10 (min/16=1 "1: Perokok di bawah umur") (17/max=0 "0: Perokok 17 tahun"), gen(perokok_bawah_umur)
+	
+keep hhid14_9 pid14 hhid14 pidlink merokok
+save "$HASIL/DATA2.dta", replace
+
+/*****************************************************************************/
+
+/*DATASET 3: Variabel Social Card PKPS/BBM/BLT/BLSM - HH level*/
+use "$IFLS5/b2_kr.dta", clear
+duplicates report hhid14 //mengecek duplikasi di variable hhid14
+tabulate kr27b
+recode kr27b (1=1 "1: Yes") (3 8=0 "0: No"), generate(social_card)
+keep hhid14* social_card
+save "$HASIL/DATA3.dta", replace
+
+/*****************************************************************************/
+
+*MERGEING 3 DATSETS merging data
+use "$HASIL/DATA1.dta", clear
+
+//First merge: one-to-one merge of DATA1 and DATA2 using both household and person IDs
+merge 1:1 hhid14 pid14 using "$HASIL/DATA2.dta"
+merge 1:1 hhid14 pid14 using "$HASIL/DATA2.dta"
+keep if _merge==3
+drop _merge
+
+//Second merge: many-to-one merge with DATA3 using only household ID
+merge m:1 hhid14 using "$HASIL/DATA3.dta" 
+drop if _merge!=3
+drop _merge
+
+save "$HASIL/DATA4.dta", replace //ini data gabungan
+browse
